@@ -1,6 +1,9 @@
 package com.lw.source;
 
+import com.lw.core.HolderSourcePool;
 import com.lw.file.*;
+import com.lw.transmit.BreakpointContinuingly;
+import com.lw.transmit.IAfterTransferFailed;
 import com.lw.view.FileReceiveProgressMonitorDialog;
 import com.lw.view.ProgressPanel;
 
@@ -9,6 +12,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author leiWei
@@ -20,6 +24,9 @@ public class ReceivedSource extends Source {
     //需要接收的文件id及对应的文件传输信息（文件信息的子类）
     private Map<Integer, FileAccessInfo> filePool;
     private int maxSectionLength;
+    private OriginalSource originalSource;
+    //断点续传的实现类
+    private IAfterTransferFailed iAfterTransferFailed;
 
     private FileReceiveProgressMonitorDialog fileReceiveProgressMonitorDialog;
 
@@ -27,9 +34,12 @@ public class ReceivedSource extends Source {
         this.maxSectionLength = DEFAULT_BUFFER_SIZE;
         this.filePool = new HashMap<>();
 
+        this.originalSource = originalSource;
         this.sourceId = originalSource.getSourceId();
         //在使用源文件生成接收文件前已经对文件路径进行了修改，此时的绝对根为接收路径
         this.absoluteRoot = originalSource.getAbsoluteRoot();
+
+        this.iAfterTransferFailed = new BreakpointContinuingly();
 
         //检查接收所需的文件形成资源列表
         checkAndCollected(originalSource);
@@ -41,6 +51,14 @@ public class ReceivedSource extends Source {
      */
     public void setFileReceiveProgressMonitorDialog(FileReceiveProgressMonitorDialog fileReceiveProgressMonitorDialog) {
         this.fileReceiveProgressMonitorDialog = fileReceiveProgressMonitorDialog;
+    }
+
+    /**
+     * 得到断点处理类
+     * @return
+     */
+    public IAfterTransferFailed getiAfterTransferFailed() {
+        return iAfterTransferFailed;
     }
 
     /**
@@ -80,6 +98,21 @@ public class ReceivedSource extends Source {
             throw new RuntimeException("文件编号【" + fileId + "】不存在");
         }
         return fileAccessInfo.getUnReceiveFileSectionInfo();
+    }
+
+    /**
+     * 得到全部未接收到的片段
+     * @return
+     */
+    public Map<Integer, UnReceiveFileSectionInfo> getUnReceivePool() {
+        Map<Integer, UnReceiveFileSectionInfo> unReceiveFileSectionInfoPool = new ConcurrentHashMap<>();
+        for (Integer fileId : this.filePool.keySet()) {
+            UnReceiveFileSectionInfo unReceive = getUnReceive(fileId);
+            if (!unReceive.isReceivedAll()) {
+                unReceiveFileSectionInfoPool.put(fileId, unReceive);
+            }
+        }
+        return unReceiveFileSectionInfoPool;
     }
 
     /**
@@ -148,15 +181,50 @@ public class ReceivedSource extends Source {
         for(Integer fileId : idSet) {
             FileAccessInfo fileAccessInfo = this.filePool.get(fileId);
             long fileSize = fileAccessInfo.getFileSize();
-            int length;
             long offset = 0;
-            while (fileSize > 0) {
-                length = fileSize > this.maxSectionLength ? this.maxSectionLength : (int) fileSize;
-                list.get(index).add(new FileSectionInfo(fileId, offset, length));
-                //循环数组进行均匀分组
-                index = (index + 1) % senderCount;
-                offset += length;
-                fileSize -= length;
+            spiltFileSection(list, fileId, fileSize, offset, senderCount);
+        }
+        return list;
+    }
+
+    /**
+     * 分割文件
+     */
+    private int spiltFileSection(List<List<FileSectionInfo>> list, int fileId, long fileSize, long offset, int senderCount) {
+        int length = 0;
+        int index = 0;
+        while (fileSize > 0) {
+            length = fileSize > this.maxSectionLength ? this.maxSectionLength : (int) fileSize;
+            list.get(index).add(new FileSectionInfo(fileId, offset, length));
+            index = (index + 1) % senderCount;
+            offset += length;
+            fileSize -= length;
+        }
+        return index;
+    }
+
+    /**
+     * 将断点处的未接受片段重新分片得到列表
+     * @param unReceiveFileSectionInfoPool
+     * @param senderCount
+     * @return
+     */
+    public List<List<FileSectionInfo>> getFileSectionListByUnReceive(Map<Integer, UnReceiveFileSectionInfo> unReceiveFileSectionInfoPool, int senderCount) {
+        List<List<FileSectionInfo>> list = new ArrayList<>();
+        int index = 0;
+        Set<Integer> idSet = unReceiveFileSectionInfoPool.keySet();
+        for (Integer fileId : idSet) {
+            UnReceiveFileSectionInfo unReceiveFileSectionInfo = unReceiveFileSectionInfoPool.get(fileId);
+            //得到全部的未接收区间
+            List<FileSectionInfo> unReceivedList = unReceiveFileSectionInfo.getUnReceivedList();
+            for(FileSectionInfo fileSectionInfo : unReceivedList) {
+                if (fileSectionInfo.getLength() > this.maxSectionLength) {
+                    index = spiltFileSection(list, fileSectionInfo.getFileId(), fileSectionInfo.getLength(), fileSectionInfo.getOffset(), senderCount);
+                } else {
+                    list.get(index).add(fileSectionInfo);
+                    //循环数组进行均匀分组
+                    index = (index + 1) % senderCount;
+                }
             }
         }
         return list;
@@ -171,5 +239,13 @@ public class ReceivedSource extends Source {
         return this.filePool.get(fileId);
     }
 
+    /**
+     * 资源请求者接收资源完毕后进行身份转换
+     */
+    public void requesterToHolder() throws Exception {
+        HolderSourcePool holderSourcePool = new HolderSourcePool();
+        holderSourcePool.connect();
+        holderSourcePool.registSource(originalSource);
+    }
 
 }

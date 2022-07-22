@@ -89,6 +89,7 @@ public class RequesterSource {
         }
 
         this.receiveServer.setSenderCount(senderCount);
+        this.receiveServer.setSourceRequesterAction(sourceRequesterAction);
         this.receiveServer.setReceivedSource(this.receivedSource);
         this.receiveServer.startReceive();
 

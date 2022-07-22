@@ -2,6 +2,8 @@ package com.lw.core;
 
 import com.lw.source.ReceivedSource;
 import com.lw.source.eyes.core.NodeAddress;
+import com.lw.source.eyes.core.SourceRequester;
+import com.lw.sourse.eyes.action.SourceRequesterAction;
 import com.lw.transmit.SourceSenderAndReceive;
 import com.lw.util.IMulFileCloud;
 
@@ -26,13 +28,18 @@ public class ReceiveServer implements Runnable{
     private int port;
     private int bufferSize;
 
-
     //接收资源结构，接收文件时使用
     private ReceivedSource receivedSource;
+    //用于断点续传
+    private SourceRequesterAction sourceRequesterAction;
 
     public ReceiveServer() {
         this.port = IMulFileCloud.DEFAULT_RECEIVE_SERVER_PORT;
         this.bufferSize = IMulFileCloud.DEFAULT_BUFFER_SIZE;
+    }
+
+    public void setSourceRequesterAction(SourceRequesterAction sourceRequesterAction) {
+        this.sourceRequesterAction = sourceRequesterAction;
     }
 
     public void setReceivedSource(ReceivedSource receivedSource) {
@@ -125,8 +132,9 @@ public class ReceiveServer implements Runnable{
             try {
                 //接收文件
                 SourceSenderAndReceive.receive(this.is, receivedSource, bufferSize);
-                //接收完毕后进行模态框进度条的删除
             } catch (IOException e) {
+                //断点异常处理
+                receivedSource.getiAfterTransferFailed().breakpointContinuingly(getReceiveServerAddress(), receivedSource, sourceRequesterAction);
                 close();
                 e.printStackTrace();
             }
@@ -136,6 +144,13 @@ public class ReceiveServer implements Runnable{
                 receivedSource.getFileReceiveProgressMonitorDialog().closeView();
             }
             close();
+            try {
+                //接收完毕后，进行身份转换，即接收者转换为资源拥有者
+                receivedSource.requesterToHolder();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
         }
 
         private void close() {

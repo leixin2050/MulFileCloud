@@ -22,6 +22,10 @@ public class UnReceiveFileSectionInfo {
         this.unReceivedList.add(new FileSectionInfo(fileId, 0, fileLength));
     }
 
+    public List<FileSectionInfo> getUnReceivedList() {
+        return unReceivedList;
+    }
+
     /**
      * 返回是否接收完毕
      * @return

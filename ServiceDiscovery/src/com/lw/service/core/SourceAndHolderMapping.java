@@ -4,6 +4,7 @@ import com.sun.org.apache.xpath.internal.operations.Or;
 
 import javax.xml.soap.Node;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author leiWei
@@ -17,9 +18,13 @@ public class SourceAndHolderMapping {
     //拥有者网络id与真实地址映射关系
     public Map<String, NodeAddress> holderMapping;
 
+    //拥有者的使用频率，负载均衡时启用判断是否可用
+    public Map<NodeAddress, Integer> holderUseTime;
+
     private SourceAndHolderMapping() {
-        this.holderMapping = new HashMap<>();
-        this.holderNodeAddressMap = new HashMap<>();
+        this.holderMapping = new ConcurrentHashMap<>();
+        this.holderNodeAddressMap = new ConcurrentHashMap<>();
+        this.holderUseTime = new ConcurrentHashMap<>();
     }
 
     /**
