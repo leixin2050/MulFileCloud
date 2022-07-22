@@ -134,9 +134,11 @@ public class ReceiveServer implements Runnable{
                 SourceSenderAndReceive.receive(this.is, receivedSource, bufferSize);
             } catch (IOException e) {
                 //断点异常处理
-                receivedSource.getiAfterTransferFailed().breakpointContinuingly(getReceiveServerAddress(), receivedSource, sourceRequesterAction);
-                close();
-                e.printStackTrace();
+                try {
+                    receivedSource.getiAfterTransferFailed().breakpointContinuingly(getReceiveServerAddress(), receivedSource, sourceRequesterAction);
+                    close();
+                } catch (IOException e1) {
+                }
             }
             ++currCount;
             //接收完毕后关闭模态框
